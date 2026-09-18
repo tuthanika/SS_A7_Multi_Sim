@@ -79,7 +79,16 @@ object RootUtils {
         return try {
             val fullCmd = commands.joinToString(" && ")
             Log.d(TAG, "Running Shizuku cmd: $fullCmd")
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", fullCmd), null, null)
+            
+            val newProcessMethod = Shizuku::class.java.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            )
+            newProcessMethod.isAccessible = true
+            val process = newProcessMethod.invoke(null, arrayOf("sh", "-c", fullCmd), null, null) as Process
+
             val result = process.waitFor()
             result == 0
         } catch (e: Exception) {
