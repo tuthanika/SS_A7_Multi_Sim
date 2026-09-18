@@ -1,8 +1,11 @@
 package com.custom.simswitcher
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.util.Log
+import rikka.shizuku.Shizuku
 import java.io.DataOutputStream
 
 object RootUtils {
@@ -21,7 +24,40 @@ object RootUtils {
         }
     }
 
-    fun executeRootCommands(vararg commands: String): Boolean {
+    fun isShizukuAvailable(): Boolean {
+        return try {
+            if (Shizuku.pingBinder()) {
+                if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                    true
+                } else {
+                    Shizuku.requestPermission(1002)
+                    false
+                }
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Shizuku check failed", e)
+            false
+        }
+    }
+
+    fun executeCommands(vararg commands: String): Boolean {
+        // First try Direct Root su execution
+        if (isRootAvailable()) {
+            val success = executeRootCommands(*commands)
+            if (success) return true
+        }
+
+        // Fallback to Shizuku execution if available
+        if (isShizukuAvailable()) {
+            return executeShizukuCommands(*commands)
+        }
+
+        return false
+    }
+
+    private fun executeRootCommands(vararg commands: String): Boolean {
         return try {
             val process = Runtime.getRuntime().exec("su")
             val os = DataOutputStream(process.outputStream)
@@ -39,46 +75,78 @@ object RootUtils {
         }
     }
 
+    private fun executeShizukuCommands(vararg commands: String): Boolean {
+        return try {
+            val fullCmd = commands.joinToString(" && ")
+            Log.d(TAG, "Running Shizuku cmd: $fullCmd")
+            val process = Shizuku.newProcess(arrayOf("sh", "-c", fullCmd), null, null)
+            val result = process.waitFor()
+            result == 0
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to execute Shizuku commands", e)
+            false
+        }
+    }
+
     fun applyNetworkModesFast(context: Context, sim1Mode: Int, sim2Mode: Int): Boolean {
+        val sub1Id = getSubscriptionIdForSlot(context, 0) ?: 1
+        val sub2Id = getSubscriptionIdForSlot(context, 1) ?: 2
+
+        Log.d(TAG, "Detected SubIDs: SIM1(Slot 0) -> SubId $sub1Id, SIM2(Slot 1) -> SubId $sub2Id")
+
         val cmds = mutableListOf<String>()
 
-        // 1. Update Global Settings Database
+        // 1. Update Samsung Stock ROM & AOSP Global Settings Keys
         cmds.add("settings put global preferred_network_mode1 $sim1Mode")
         cmds.add("settings put global preferred_network_mode2 $sim2Mode")
         cmds.add("settings put global preferred_network_mode_sub1 $sim1Mode")
         cmds.add("settings put global preferred_network_mode_sub2 $sim2Mode")
-        cmds.add("settings put global preferred_network_mode_sim1 $sim1Mode")
-        cmds.add("settings put global preferred_network_mode_sim2 $sim2Mode")
+        cmds.add("settings put global preferred_network_mode_slot1 $sim1Mode")
+        cmds.add("settings put global preferred_network_mode_slot2 $sim2Mode")
+        cmds.add("settings put global preferred_network_mode $sim1Mode")
 
-        // 2. Direct Telephony Binder / RIL commands for instant baseband mode switch (No Airplane mode needed)
-        // Try cmd telephony set-preferred-network-type (Android 7.0+)
-        cmds.add("cmd telephony set-preferred-network-type 1 $sim1Mode 2>/dev/null || true")
-        cmds.add("cmd telephony set-preferred-network-type 2 $sim2Mode 2>/dev/null || true")
+        // 2. Primary Data SIM hardware slot switch
+        if (sim1Mode == 11 || sim1Mode == 9 || sim1Mode == 2) {
+            cmds.add("settings put global multi_sim_data_call $sub1Id")
+            cmds.add("settings put global user_preferred_data_sub $sub1Id")
+        } else if (sim2Mode == 9 || sim2Mode == 2 || sim2Mode == 11) {
+            cmds.add("settings put global multi_sim_data_call $sub2Id")
+            cmds.add("settings put global user_preferred_data_sub $sub2Id")
+        }
+
+        // 3. Telephony CLI commands for detected Sub IDs
+        cmds.add("cmd telephony set-preferred-network-type $sub1Id $sim1Mode 2>/dev/null || true")
+        cmds.add("cmd telephony set-preferred-network-type $sub2Id $sim2Mode 2>/dev/null || true")
         cmds.add("cmd telephony set-preferred-network-type 0 $sim1Mode 2>/dev/null || true")
+        cmds.add("cmd telephony set-preferred-network-type 1 $sim1Mode 2>/dev/null || true")
 
-        // Try service call phone ITelephony setPreferredNetworkType (common Nougat transaction codes: 94, 104, 107)
-        cmds.add("service call phone 94 i32 1 i32 $sim1Mode 2>/dev/null || true")
-        cmds.add("service call phone 94 i32 2 i32 $sim2Mode 2>/dev/null || true")
-        cmds.add("service call phone 104 i32 1 i32 $sim1Mode 2>/dev/null || true")
-        cmds.add("service call phone 104 i32 2 i32 $sim2Mode 2>/dev/null || true")
+        // 4. Samsung Stock RIL Daemon Refresh (Reloads SecRIL settings without Airplane Mode)
+        cmds.add("pkill -f rild 2>/dev/null || killall rild 2>/dev/null || true")
 
-        // 3. Notify Telephony Framework of network mode modification
-        cmds.add("am broadcast -a android.intent.action.ACTION_SET_RADIO_CAPABILITY_DONE 2>/dev/null || true")
+        val cmdResult = executeCommands(*cmds.toTypedArray())
 
-        val rootResult = executeRootCommands(*cmds.toTypedArray())
+        // 5. Invoke Reflection API
+        setNetworkTypeViaReflection(context, sub1Id, sim1Mode)
+        setNetworkTypeViaReflection(context, sub2Id, sim2Mode)
 
-        // Also attempt reflection via TelephonyManager
-        setNetworkTypeViaReflection(context, 1, sim1Mode)
-        setNetworkTypeViaReflection(context, 2, sim2Mode)
+        return cmdResult
+    }
 
-        return rootResult
+    private fun getSubscriptionIdForSlot(context: Context, slotIndex: Int): Int? {
+        return try {
+            val sm = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+            val activeList = sm?.activeSubscriptionInfoList
+            activeList?.firstOrNull { it.simSlotIndex == slotIndex }?.subscriptionId
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get subId for slot $slotIndex", e)
+            null
+        }
     }
 
     private fun setNetworkTypeViaReflection(context: Context, subId: Int, networkType: Int): Boolean {
         return try {
             val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
 
-            // Attempt Method 1: tm.setPreferredNetworkType(subId, networkType)
             try {
                 val method = tm.javaClass.getMethod("setPreferredNetworkType", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
                 method.isAccessible = true
@@ -86,7 +154,6 @@ object RootUtils {
                 if (res == true) return true
             } catch (_: Exception) {}
 
-            // Attempt Method 2: tm.createForSubscriptionId(subId).setPreferredNetworkType(networkType)
             try {
                 val createMethod = tm.javaClass.getMethod("createForSubscriptionId", Int::class.javaPrimitiveType)
                 val subTm = createMethod.invoke(tm, subId) as? TelephonyManager

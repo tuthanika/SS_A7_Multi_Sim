@@ -115,11 +115,12 @@ class MainActivity : AppCompatActivity() {
     private fun checkRootStatus() {
         Thread {
             val hasRoot = RootUtils.isRootAvailable()
+            val hasShizuku = RootUtils.isShizukuAvailable()
             runOnUiThread {
-                if (hasRoot) {
-                    binding.tvRootStatus.text = "Quyền Root (SuperSU/Magisk): Đã cấp 🟢"
-                } else {
-                    binding.tvRootStatus.text = "Quyền Root: CHƯA CẤP (Ứng dụng cần Root!) 🔴"
+                when {
+                    hasRoot -> binding.tvRootStatus.text = "Quyền đặc thi: ROOT (SuperSU/Magisk) 🟢"
+                    hasShizuku -> binding.tvRootStatus.text = "Quyền đặc thi: SHIZUKU 🟢"
+                    else -> binding.tvRootStatus.text = "Quyền đặc thi: CHƯA CẤP (Cần Root hoặc Shizuku!) 🔴"
                 }
             }
         }.start()
