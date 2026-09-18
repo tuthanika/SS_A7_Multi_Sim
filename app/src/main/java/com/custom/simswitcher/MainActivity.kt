@@ -67,7 +67,7 @@ class MainActivity : AppCompatActivity() {
             saveValues()
             Toast.makeText(this, "Đang thực thi chuyển mạng...", Toast.LENGTH_SHORT).show()
             val intent = Intent(this, SimRotatorService::class.java).apply {
-                action = SimRotatorService.ACTION_TOGGLE
+                action = if (prefsManager.currentPhase == 1) SimRotatorService.ACTION_SWITCH_SIM1 else SimRotatorService.ACTION_SWITCH_SIM2
             }
             startService(intent)
         }
