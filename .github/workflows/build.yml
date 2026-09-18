@@ -29,7 +29,12 @@ jobs:
       run: chmod +x gradlew || true
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+      run: |
+        if [ -f ./gradlew ]; then
+          ./gradlew assembleDebug --stacktrace
+        else
+          gradle assembleDebug --stacktrace
+        fi
 
     - name: Upload Debug APK Artifact
       uses: actions/upload-artifact@v4
