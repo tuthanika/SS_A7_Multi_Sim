@@ -1,0 +1,6 @@
+id=force_sim_network_mode
+name=Force SIM Network Mode
+version=v1.0
+versionCode=1
+author=Custom
+description=Forces SIM1 to 4G Only (LTE) and SIM2 to 3G Only (WCDMA). Samsung A7 2016 / Android 7.1

@@ -1,0 +1,6 @@
+#!/sbin/sh
+# Magisk Module Installer
+# This file is used by older recovery-based installations.
+# For Magisk App installations, Magisk replaces this with its own installer.
+# Keep this minimal.
+SKIPUNZIP=0
