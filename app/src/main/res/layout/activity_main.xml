@@ -181,7 +181,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Tự động nháy Chế độ máy bay khi đổi SIM"
-                    android:checked="true" />
+                    android:visibility="gone"
+                    android:checked="false" />
 
                 <CheckBox
                     android:id="@+id/cbAutoRotation"

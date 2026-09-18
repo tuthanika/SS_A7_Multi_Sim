@@ -1,5 +1,7 @@
 package com.custom.simswitcher
 
+import android.content.Context
+import android.telephony.TelephonyManager
 import android.util.Log
 import java.io.DataOutputStream
 
@@ -37,49 +39,69 @@ object RootUtils {
         }
     }
 
-    fun applyNetworkModes(sim1Mode: Int, sim2Mode: Int, toggleAirplane: Boolean): Boolean {
+    fun applyNetworkModesFast(context: Context, sim1Mode: Int, sim2Mode: Int): Boolean {
         val cmds = mutableListOf<String>()
 
-        // 1. Standard AOSP Global Settings Keys
+        // 1. Update Global Settings Database
         cmds.add("settings put global preferred_network_mode1 $sim1Mode")
         cmds.add("settings put global preferred_network_mode2 $sim2Mode")
-
-        // 2. Samsung Multi-SIM & Slot Specific Keys
         cmds.add("settings put global preferred_network_mode_sub1 $sim1Mode")
         cmds.add("settings put global preferred_network_mode_sub2 $sim2Mode")
         cmds.add("settings put global preferred_network_mode_sim1 $sim1Mode")
         cmds.add("settings put global preferred_network_mode_sim2 $sim2Mode")
-        cmds.add("settings put global preferred_network_mode_slot1 $sim1Mode")
-        cmds.add("settings put global preferred_network_mode_slot2 $sim2Mode")
 
-        // 3. Samsung Primary Data SIM Routing (Hardware Transceiver Slot Mapping)
-        if (sim1Mode == 11 || sim1Mode == 9 || sim1Mode == 12 || sim1Mode == 2) {
-            // SIM 1 needs 3G/4G primary channel
-            cmds.add("settings put global preferred_network_mode $sim1Mode")
-            cmds.add("settings put global multi_sim_data_call 1")
-            cmds.add("settings put global user_preferred_data_sub 1")
-            cmds.add("settings put global user_preferred_sub1 1")
-        } else if (sim2Mode == 9 || sim2Mode == 2 || sim2Mode == 11) {
-            // SIM 2 needs 3G/4G primary channel
-            cmds.add("settings put global preferred_network_mode $sim2Mode")
-            cmds.add("settings put global multi_sim_data_call 2")
-            cmds.add("settings put global user_preferred_data_sub 2")
-            cmds.add("settings put global user_preferred_sub2 2")
+        // 2. Direct Telephony Binder / RIL commands for instant baseband mode switch (No Airplane mode needed)
+        // Try cmd telephony set-preferred-network-type (Android 7.0+)
+        cmds.add("cmd telephony set-preferred-network-type 1 $sim1Mode 2>/dev/null || true")
+        cmds.add("cmd telephony set-preferred-network-type 2 $sim2Mode 2>/dev/null || true")
+        cmds.add("cmd telephony set-preferred-network-type 0 $sim1Mode 2>/dev/null || true")
+
+        // Try service call phone ITelephony setPreferredNetworkType (common Nougat transaction codes: 94, 104, 107)
+        cmds.add("service call phone 94 i32 1 i32 $sim1Mode 2>/dev/null || true")
+        cmds.add("service call phone 94 i32 2 i32 $sim2Mode 2>/dev/null || true")
+        cmds.add("service call phone 104 i32 1 i32 $sim1Mode 2>/dev/null || true")
+        cmds.add("service call phone 104 i32 2 i32 $sim2Mode 2>/dev/null || true")
+
+        // 3. Notify Telephony Framework of network mode modification
+        cmds.add("am broadcast -a android.intent.action.ACTION_SET_RADIO_CAPABILITY_DONE 2>/dev/null || true")
+
+        val rootResult = executeRootCommands(*cmds.toTypedArray())
+
+        // Also attempt reflection via TelephonyManager
+        setNetworkTypeViaReflection(context, 1, sim1Mode)
+        setNetworkTypeViaReflection(context, 2, sim2Mode)
+
+        return rootResult
+    }
+
+    private fun setNetworkTypeViaReflection(context: Context, subId: Int, networkType: Int): Boolean {
+        return try {
+            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+
+            // Attempt Method 1: tm.setPreferredNetworkType(subId, networkType)
+            try {
+                val method = tm.javaClass.getMethod("setPreferredNetworkType", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                method.isAccessible = true
+                val res = method.invoke(tm, subId, networkType) as? Boolean
+                if (res == true) return true
+            } catch (_: Exception) {}
+
+            // Attempt Method 2: tm.createForSubscriptionId(subId).setPreferredNetworkType(networkType)
+            try {
+                val createMethod = tm.javaClass.getMethod("createForSubscriptionId", Int::class.javaPrimitiveType)
+                val subTm = createMethod.invoke(tm, subId) as? TelephonyManager
+                if (subTm != null) {
+                    val method = subTm.javaClass.getMethod("setPreferredNetworkType", Int::class.javaPrimitiveType)
+                    method.isAccessible = true
+                    val res = method.invoke(subTm, networkType) as? Boolean
+                    if (res == true) return true
+                }
+            } catch (_: Exception) {}
+
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Reflection setPreferredNetworkType failed for sub $subId", e)
+            false
         }
-
-        // 4. Secure & System Database mirrors
-        cmds.add("settings put secure preferred_network_mode1 $sim1Mode")
-        cmds.add("settings put secure preferred_network_mode2 $sim2Mode")
-
-        // 5. Toggle Airplane Mode to force modem re-attach & RIL read
-        if (toggleAirplane) {
-            cmds.add("settings put global airplane_mode_on 1")
-            cmds.add("am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true")
-            cmds.add("sleep 4")
-            cmds.add("settings put global airplane_mode_on 0")
-            cmds.add("am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false")
-        }
-
-        return executeRootCommands(*cmds.toTypedArray())
     }
 }

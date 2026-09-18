@@ -116,7 +116,7 @@ class SimRotatorService : Service() {
         Log.d(TAG, "Applying Phase $phase: $statusText")
 
         Thread {
-            RootUtils.applyNetworkModes(sim1Mode, sim2Mode, prefsManager.toggleAirplaneMode)
+            RootUtils.applyNetworkModesFast(applicationContext, sim1Mode, sim2Mode)
             handler.post {
                 updateNotification(statusText)
                 SimTileService.updateTileState(applicationContext, phase)
