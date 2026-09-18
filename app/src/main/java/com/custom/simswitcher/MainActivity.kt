@@ -54,10 +54,40 @@ class MainActivity : AppCompatActivity() {
         binding.cbToggleAirplane.isChecked = prefsManager.toggleAirplaneMode
         binding.cbAutoRotation.isChecked = prefsManager.autoRotationEnabled
 
+        if (prefsManager.useShizuku) {
+            binding.rbModeShizuku.isChecked = true
+        } else {
+            binding.rbModeRoot.isChecked = true
+        }
+
         updateServiceStatusUI()
     }
 
     private fun setupListeners() {
+        binding.rgExecutionMode.setOnCheckedChangeListener { _, checkedId ->
+            prefsManager.useShizuku = (checkedId == R.id.rbModeShizuku)
+        }
+
+        binding.btnReqRoot.setOnClickListener {
+            Thread {
+                val hasRoot = RootUtils.isRootAvailable()
+                runOnUiThread {
+                    if (hasRoot) {
+                        Toast.makeText(this, "Đã được cấp quyền ROOT thành công!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "Không nhận được quyền ROOT! Hãy mở SuperSU / Magisk cấp quyền.", Toast.LENGTH_LONG).show()
+                    }
+                    checkRootStatus()
+                }
+            }.start()
+        }
+
+        binding.btnReqShizuku.setOnClickListener {
+            RootUtils.requestShizukuPermission()
+            Toast.makeText(this, "Đã gửi yêu cầu cấp quyền Shizuku!", Toast.LENGTH_SHORT).show()
+            checkRootStatus()
+        }
+
         binding.btnSave.setOnClickListener {
             saveValues()
             Toast.makeText(this, "Đã lưu cài đặt!", Toast.LENGTH_SHORT).show()
@@ -100,6 +130,7 @@ class MainActivity : AppCompatActivity() {
 
         prefsManager.toggleAirplaneMode = binding.cbToggleAirplane.isChecked
         prefsManager.autoRotationEnabled = binding.cbAutoRotation.isChecked
+        prefsManager.useShizuku = binding.rbModeShizuku.isChecked
     }
 
     private fun updateServiceStatusUI() {
@@ -118,9 +149,11 @@ class MainActivity : AppCompatActivity() {
             val hasShizuku = RootUtils.isShizukuAvailable()
             runOnUiThread {
                 when {
-                    hasRoot -> binding.tvRootStatus.text = "Quyền đặc thi: ROOT (SuperSU/Magisk) 🟢"
-                    hasShizuku -> binding.tvRootStatus.text = "Quyền đặc thi: SHIZUKU 🟢"
-                    else -> binding.tvRootStatus.text = "Quyền đặc thi: CHƯA CẤP (Cần Root hoặc Shizuku!) 🔴"
+                    hasRoot && !prefsManager.useShizuku -> binding.tvRootStatus.text = "Quyền thực thi: ROOT (SuperSU / Magisk) 🟢"
+                    hasShizuku && prefsManager.useShizuku -> binding.tvRootStatus.text = "Quyền thực thi: SHIZUKU 🟢"
+                    hasRoot -> binding.tvRootStatus.text = "Quyền thực thi: ROOT (SuperSU / Magisk) 🟢"
+                    hasShizuku -> binding.tvRootStatus.text = "Quyền thực thi: SHIZUKU 🟢"
+                    else -> binding.tvRootStatus.text = "Quyền thực thi: CHƯA CẤP (Cần Root hoặc Shizuku!) 🔴"
                 }
             }
         }.start()

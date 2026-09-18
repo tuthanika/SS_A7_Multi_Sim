@@ -42,14 +42,28 @@ object RootUtils {
         }
     }
 
-    fun executeCommands(vararg commands: String): Boolean {
-        // First try Direct Root su execution
-        if (isRootAvailable()) {
-            val success = executeRootCommands(*commands)
-            if (success) return true
+    fun requestShizukuPermission() {
+        try {
+            if (Shizuku.pingBinder()) {
+                Shizuku.requestPermission(1002)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Request Shizuku permission failed", e)
+        }
+    }
+
+    fun executeCommands(useShizukuMode: Boolean, vararg commands: String): Boolean {
+        if (useShizukuMode && isShizukuAvailable()) {
+            val result = executeShizukuCommands(*commands)
+            if (result) return true
         }
 
-        // Fallback to Shizuku execution if available
+        // Direct Root su execution
+        if (isRootAvailable()) {
+            return executeRootCommands(*commands)
+        }
+
+        // Fallback to Shizuku if root failed
         if (isShizukuAvailable()) {
             return executeShizukuCommands(*commands)
         }
@@ -97,7 +111,7 @@ object RootUtils {
         }
     }
 
-    fun applyNetworkModesFast(context: Context, sim1Mode: Int, sim2Mode: Int): Boolean {
+    fun applyNetworkModesFast(context: Context, sim1Mode: Int, sim2Mode: Int, useShizuku: Boolean = false): Boolean {
         val sub1Id = getSubscriptionIdForSlot(context, 0) ?: 1
         val sub2Id = getSubscriptionIdForSlot(context, 1) ?: 2
 
@@ -132,7 +146,7 @@ object RootUtils {
         // 4. Samsung Stock RIL Daemon Refresh (Reloads SecRIL settings without Airplane Mode)
         cmds.add("pkill -f rild 2>/dev/null || killall rild 2>/dev/null || true")
 
-        val cmdResult = executeCommands(*cmds.toTypedArray())
+        val cmdResult = executeCommands(useShizuku, *cmds.toTypedArray())
 
         // 5. Invoke Reflection API
         setNetworkTypeViaReflection(context, sub1Id, sim1Mode)

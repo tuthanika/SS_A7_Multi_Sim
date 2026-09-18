@@ -39,6 +39,10 @@ class PreferenceManager(context: Context) {
         get() = prefs.getBoolean(KEY_SERVICE_RUNNING, false)
         set(value) = prefs.edit().putBoolean(KEY_SERVICE_RUNNING, value).apply()
 
+    var useShizuku: Boolean
+        get() = prefs.getBoolean(KEY_USE_SHIZUKU, false)
+        set(value) = prefs.edit().putBoolean(KEY_USE_SHIZUKU, value).apply()
+
     companion object {
         private const val KEY_SIM1_MODE = "sim1_mode"
         private const val KEY_SIM2_MODE = "sim2_mode"
@@ -48,5 +52,6 @@ class PreferenceManager(context: Context) {
         private const val KEY_AUTO_ROTATION = "auto_rotation"
         private const val KEY_CURRENT_PHASE = "current_phase"
         private const val KEY_SERVICE_RUNNING = "service_running"
+        private const val KEY_USE_SHIZUKU = "use_shizuku"
     }
 }
